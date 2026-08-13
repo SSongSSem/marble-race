@@ -187,6 +187,13 @@
   .ranklist li:first-child .rank { color: var(--accent); }
   .ranklist .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
   .empty-note { color: var(--muted); font-size: 0.85rem; margin: 0; }
+  .netline { margin: 0; font-size: 0.8rem; color: #51CF66; }
+  .netline.off { color: #E06060; }
+  body.guest .stage, body.guest #gocard, body.guest #rankcard,
+  body.guest #sample, body.guest #clear,
+  body.guest .chips, body.guest .joincount { display: none; }
+  body.guest .layout { flex-direction: column; align-items: center; }
+  body.guest .side { flex: none; width: 100%; max-width: 420px; margin-top: 24px; }
 
   #race {
     background: var(--track);
@@ -313,9 +320,11 @@
 
   <div class="layout">
     <div class="side">
-      <section class="card">
+      <section class="card" id="joincard">
         <h2>참가자 입장</h2>
         <input type="text" id="nick" placeholder="닉네임 입력 후 Enter (쉼표로 여러 명)" autocomplete="off">
+        <button class="btn-primary" id="join" hidden>🎈 입장하기</button>
+        <p class="empty-note" id="guestmsg" hidden></p>
         <div class="chips" id="chips"></div>
         <span class="joincount" id="joincount">0명 입장</span>
         <div class="btnrow">
@@ -324,15 +333,16 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card" id="gocard">
         <button class="btn-primary" id="start">🏁 레이스 시작!</button>
         <div class="btnrow">
           <button class="btn-ghost" id="qrbtn">📱 입장 QR</button>
           <button class="btn-ghost" id="newmap">🗺️ 새 맵</button>
         </div>
+        <p class="netline" id="netline" hidden></p>
       </section>
 
-      <section class="card">
+      <section class="card" id="rankcard">
         <h2>실시간 순위</h2>
         <ol class="ranklist" id="livelist"></ol>
         <p class="empty-note" id="liveempty">레이스가 시작되면 결승선 통과 순서대로 표시됩니다.</p>
@@ -3103,6 +3113,7 @@ var qrcode = function() {
   $nick.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
+    if (isGuest) { guestJoin(); return; }
     if (racing || countdownOn) return;
     $nick.value.split(/[,\n]+/).forEach(function (s) { addMarble(s.trim()); });
     $nick.value = '';
@@ -3200,6 +3211,7 @@ var qrcode = function() {
     document.getElementById('resultbox').classList.add('show');
     renderChips();
     if (!reduced) confetti();
+    flushJoins();  // 레이스 중 QR로 들어온 참가자 합류
   }
 
   document.getElementById('again').addEventListener('click', function () {
@@ -3218,13 +3230,132 @@ var qrcode = function() {
   });
   $start.addEventListener('click', startRace);
 
+  // ===== 함께 입장 (공개 MQTT 중계) =====
+  var params = new URLSearchParams(location.search);
+  var room = params.get('room');
+  var isGuest = !!room;
+  var client = null, connected = false;
+  var pendingJoins = [];
+  var RXCTRL = new RegExp('[' + String.fromCharCode(0) + '-' + String.fromCharCode(31) + ']', 'g');
+  var BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+  var bi = 0;
+  var $netline = document.getElementById('netline');
+  var $guestmsg = document.getElementById('guestmsg');
+  var $join = document.getElementById('join');
+
+  function topic() { return 'ssongmr/' + room; }
+
+  function setNet(on) {
+    $netline.hidden = false;
+    $netline.className = on ? 'netline' : 'netline off';
+    $netline.textContent = on ? '● 함께 입장 연결됨 — QR로 들어온 닉네임이 자동 입장합니다' : '● 함께 입장 연결 끊김';
+  }
+
+  function loadScript(src, ok, fail) {
+    var s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = fail;
+    document.head.appendChild(s);
+  }
+
+  function joinName(name) {
+    name = name.replace(RXCTRL, '').trim().slice(0, 10);
+    if (!name) return;
+    if (racing || countdownOn) {
+      if (pendingJoins.length < 40 && pendingJoins.indexOf(name) === -1) pendingJoins.push(name);
+    } else addMarble(name);
+  }
+
+  function flushJoins() {
+    pendingJoins.splice(0).forEach(joinName);
+  }
+
+  function connectNet() {
+    if (typeof mqtt === 'undefined') return;
+    try {
+      client = mqtt.connect(BROKERS[bi], { connectTimeout: 6000, reconnectPeriod: 3000 });
+    } catch (e) { return; }
+    client.on('connect', function () {
+      connected = true;
+      if (isGuest) {
+        $guestmsg.textContent = '연결됐어요! 닉네임을 입력하고 입장해 보세요.';
+        $join.disabled = false;
+      } else {
+        client.subscribe(topic());
+        setNet(true);
+      }
+    });
+    client.on('message', function (t, buf) {
+      if (isGuest) return;
+      var d;
+      try { d = JSON.parse(buf.toString()); } catch (e) { return; }
+      if (typeof d.n === 'string') d.n.split(',').slice(0, 3).forEach(joinName);
+    });
+    client.on('close', function () {
+      if (connected) {
+        connected = false;
+        if (isGuest) { $guestmsg.textContent = '연결이 끊겼어요. 잠시 후 다시 시도됩니다.'; $join.disabled = true; }
+        else setNet(false);
+      }
+    });
+    client.on('error', function () {
+      if (!connected && bi < BROKERS.length - 1) {
+        try { client.end(true); } catch (e) {}
+        bi++;
+        connectNet();
+      }
+    });
+  }
+
+  function guestJoin() {
+    var name = $nick.value.replace(RXCTRL, '').trim().slice(0, 10);
+    if (!name) { $nick.focus(); return; }
+    if (!connected) return;
+    client.publish(topic(), JSON.stringify({ n: name }));
+    $nick.value = '';
+    $join.disabled = true;
+    $join.textContent = '🎈 입장 완료!';
+    $guestmsg.textContent = '발표 화면에 구슬이 떨어졌는지 확인하세요! 친구 닉네임도 입장시켜 줄 수 있어요.';
+    setTimeout(function () { $join.disabled = false; $join.textContent = '🎈 입장하기'; }, 3000);
+  }
+
+  function initNet() {
+    if (!room) {
+      try { room = sessionStorage.getItem('mrroom'); } catch (e) {}
+      if (!room) {
+        room = Math.random().toString(36).slice(2, 8);
+        try { sessionStorage.setItem('mrroom', room); } catch (e) {}
+      }
+    }
+    if (isGuest) {
+      document.body.classList.add('guest');
+      $join.hidden = false;
+      $join.disabled = true;
+      $guestmsg.hidden = false;
+      $guestmsg.textContent = '연결 중…';
+      $nick.placeholder = '닉네임 (10자까지)';
+      document.querySelector('header p').textContent = '닉네임을 입력하고 입장하면 발표 화면에 내 구슬이 떨어져요.';
+    }
+    loadScript('https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js', connectNet, function () {
+      loadScript('https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js', connectNet, function () {});
+    });
+  }
+  $join.addEventListener('click', guestJoin);
+  initNet();
+
   // ===== QR =====
   var $qrbox = document.getElementById('qrbox');
   var $qrurl = document.getElementById('qrurl');
   var $qrimg = document.getElementById('qrimg');
 
+  function presenterLink() {
+    return location.origin + location.pathname + '?room=' + room;
+  }
+
   function renderQR() {
-    var text = $qrurl.value.trim() || location.href;
+    var text = $qrurl.value.trim() || presenterLink();
+    if (!isGuest && !/[?&]room=/.test(text)) {
+      text += (text.indexOf('?') === -1 ? '?' : '&') + 'room=' + room;
+    }
     try {
       var qr = qrcode(0, 'M');
       qr.addData(text);
@@ -3235,7 +3366,7 @@ var qrcode = function() {
     }
   }
   document.getElementById('qrbtn').addEventListener('click', function () {
-    if (!$qrurl.value) $qrurl.value = location.href;
+    if (!$qrurl.value) $qrurl.value = presenterLink();
     renderQR();
     $qrbox.classList.add('show');
   });
