@@ -327,6 +327,45 @@
   .kinds button.on { background: rgba(255,201,77,0.16); border-color: rgba(255,201,77,0.5); color: var(--accent); }
   #lenseg button { flex: 1 1 0; }
 
+  /* 스킬 발동 기록 - 레이스 옆에 쌓인다 */
+  .skilllog {
+    flex: 0 0 150px; align-self: stretch;
+    background: var(--track); border: 1px solid var(--panel-line);
+    border-radius: 12px; padding: 8px;
+    overflow-y: auto; display: flex; flex-direction: column; gap: 5px;
+  }
+  .skilllog .logempty { margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.45; }
+  .skilllog .row {
+    display: flex; align-items: center; gap: 6px; flex: none;
+    background: var(--panel); border-radius: 8px; padding: 5px 7px;
+    font-size: 0.8rem; font-weight: 700;
+    animation: slidein 0.3s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .skilllog .row .ic { font-size: 0.95rem; flex: none; }
+  .skilllog .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .skilllog .row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 700px) { .skilllog { display: none; } }
+
+  /* 스킬 한눈에 - 학생 x 스킬 표 */
+  #boardbox .box { max-width: 560px; align-items: stretch; }
+  #boardbox h3 { margin: 0; font-size: 1.2rem; text-align: center; }
+  .boardwrap { max-height: 56vh; overflow-y: auto; width: 100%; }
+  table.board { width: 100%; border-collapse: separate; border-spacing: 0 3px; }
+  table.board th, table.board td { padding: 0 2px; text-align: center; }
+  table.board thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; padding-bottom: 4px; }
+  table.board th.who, table.board td.who { text-align: left; white-space: nowrap; padding-right: 6px; }
+  table.board td.who { font-size: 0.86rem; font-weight: 700; }
+  table.board .nm { display: inline-flex; align-items: center; gap: 6px; }
+  table.board .nm .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  table.board .cell {
+    width: 38px; height: 32px; padding: 0; font-size: 1.05rem;
+    background: var(--track); border: 1px solid var(--panel-line); border-radius: 9px;
+    opacity: 0.3; filter: grayscale(1);
+  }
+  table.board .cell.on { opacity: 1; filter: none; background: rgba(255,201,77,0.16); border-color: rgba(255,201,77,0.5); }
+  table.board .allbtn { background: none; border: 0; padding: 2px 4px; font-size: 1.15rem; }
+  table.board .allbtn:hover { transform: translateY(-1px); }
+
   /* 스킬 */
   .btn-ghost.on { background: rgba(255,201,77,0.18); border-color: rgba(255,201,77,0.55); color: var(--accent); }
   .chip .sk { letter-spacing: -1px; margin-left: 2px; }
@@ -414,6 +453,9 @@
           <button class="btn-ghost" id="skillrand">🎲 랜덤 배정</button>
         </div>
         <div class="btnrow">
+          <button class="btn-ghost" id="skillboard">🎛️ 스킬 한눈에</button>
+        </div>
+        <div class="btnrow">
           <button class="btn-ghost" id="fs">⛶ 집중 모드</button>
           <button class="btn-ghost" id="mute">🔊 소리 켬</button>
         </div>
@@ -430,12 +472,29 @@
     <div class="stage">
       <canvas id="race" width="960" height="1520"></canvas>
       <canvas id="minimap" width="112" height="1520"></canvas>
+      <aside class="skilllog" id="skilllog" aria-live="polite">
+        <p class="logempty" id="logempty">스킬이 터지면 여기에 쌓입니다</p>
+      </aside>
       <div id="countdown"><span id="cdnum">3</span></div>
     </div>
   </div>
 </div>
 
 <button class="focus-exit" id="exitfocus" hidden>✕ 집중 모드 나가기</button>
+
+<div class="overlay" id="boardbox">
+  <div class="box">
+    <h3>🎛️ 스킬 한눈에</h3>
+    <p style="margin:0;font-size:0.82rem;color:var(--muted);line-height:1.45;text-align:center">
+      칸을 누르면 붙고 다시 누르면 떨어집니다.<br>
+      맨 윗줄 아이콘을 누르면 그 스킬을 모두에게 한 번에 주거나 뺍니다.</p>
+    <div class="boardwrap"><table class="board" id="boardtable"></table></div>
+    <div class="btnrow" style="width:100%">
+      <button class="btn-ghost" id="boardclear">전체 지우기</button>
+      <button class="btn-ghost" id="boardclose">닫기</button>
+    </div>
+  </div>
+</div>
 
 <div class="overlay" id="skillbox">
   <div class="box">
@@ -2871,10 +2930,36 @@ var qrcode = function() {
     saveSkills();
   }
   // 레이스를 시작할 때 구슬에 스킬 상태를 심는다
+  // 스킬이 터지면 토스트로 알리고, 레이스 옆 기록에도 쌓는다.
+  // 토스트는 금방 사라져서 놓치기 쉬워 기록을 따로 둔다.
   function skillFire(m, id) {
     var sk = null;
     for (var i = 0; i < SKILLS.length; i++) if (SKILLS[i].id === id) sk = SKILLS[i];
-    if (sk) toast(sk.icon + ' ' + m.name + ' ' + sk.name + '!');
+    if (!sk) return;
+    toast(sk.icon + ' ' + m.name + ' ' + sk.name + '!');
+    logSkill(m, sk);
+  }
+
+  function logSkill(m, sk) {
+    var box = document.getElementById('skilllog');
+    if (!box) return;
+    var empty = document.getElementById('logempty');
+    if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span class="ic"></span><span class="dot"></span><span class="who"></span>';
+    row.querySelector('.ic').textContent = sk.icon;
+    row.querySelector('.dot').style.background = m.color;
+    row.querySelector('.who').textContent = m.name;
+    row.title = m.name + ' - ' + sk.name;
+    box.insertBefore(row, box.firstChild);   // 새 것이 맨 위
+    while (box.children.length > 60) box.removeChild(box.lastChild);
+  }
+
+  function clearSkillLog() {
+    var box = document.getElementById('skilllog');
+    if (!box) return;
+    box.innerHTML = '<p class="logempty" id="logempty">스킬이 터지면 여기에 쌓입니다</p>';
   }
 
   function armSkills(m) {
@@ -4005,42 +4090,152 @@ var qrcode = function() {
     x.classList.toggle('on', x.getAttribute('data-len') === mapLen);
   });
 
-  // 모두에게 스킬을 하나씩 무작위로 나눠 준다.
-  // 포상으로 붙여 둔 게 있으면 지워지므로 한 번 더 누르게 한다.
+  // 되돌릴 수 없는 버튼은 두 번 누르게 한다.
   // confirm() 을 쓰면 안 된다 - 아티팩트는 샌드박스 iframe 이라 대화상자가 뜨지 못하고
   // 조용히 '취소'로 처리돼서, 버튼을 눌러도 아무 일도 일어나지 않는다.
-  var randArm = false, randTimer = 0;
-  function resetRand(btn) {
-    randArm = false;
-    clearTimeout(randTimer);
-    btn.textContent = '🎲 랜덤 배정';
-    btn.classList.remove('on');
+  function twoStep(btn, warnLabel, warnToast, needWarn, run) {
+    var armed = false, timer = 0;
+    var base = btn.textContent;
+    function reset() {
+      armed = false; clearTimeout(timer);
+      btn.textContent = base; btn.classList.remove('on');
+    }
+    btn.addEventListener('click', function () {
+      if (racing || countdownOn) return;
+      if (!marbles.length) { toast('참가자를 먼저 넣어 주세요'); return; }
+      if (!armed && needWarn()) {
+        armed = true;
+        btn.textContent = warnLabel;
+        btn.classList.add('on');
+        toast(warnToast);
+        clearTimeout(timer);
+        timer = setTimeout(reset, 4000);
+        return;
+      }
+      reset();
+      run();
+    });
   }
-  document.getElementById('skillrand').addEventListener('click', function () {
+  function anySkill() {
+    return marbles.some(function (m) { return (skillMap[m.name] || []).length; });
+  }
+
+  // 모두에게 스킬을 하나씩 무작위로 나눠 준다.
+  twoStep(document.getElementById('skillrand'),
+    '🎲 한 번 더 누르면 새로',
+    '지금 붙은 스킬이 지워집니다. 한 번 더 누르세요',
+    anySkill,
+    function () {
+      skillMap = {};
+      marbles.forEach(function (m) {
+        skillMap[m.name] = [SKILLS[Math.floor(Math.random() * SKILLS.length)].id];
+      });
+      if (!skillMode) skillMode = true;   // 나눠 줬는데 안 보이면 이상하니 같이 켠다
+      saveSkills();
+      paintSkillBtn();
+      renderChips();
+      if (boardOpen()) renderBoard();
+      toast('🎲 모두에게 스킬을 하나씩 나눠 줬어요');
+    });
+
+  // ===== 스킬 한눈에 (학생 x 스킬 표) =====
+  var $board = document.getElementById('boardbox');
+  function boardOpen() { return $board.classList.contains('show'); }
+
+  function renderBoard() {
+    var t = document.getElementById('boardtable');
+    t.innerHTML = '';
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    var h0 = document.createElement('th');
+    h0.className = 'who';
+    h0.textContent = '이름';
+    hr.appendChild(h0);
+    SKILLS.forEach(function (sk) {
+      var th = document.createElement('th');
+      var b = document.createElement('button');
+      b.className = 'allbtn';
+      b.textContent = sk.icon;
+      b.title = sk.name + ' - 모두에게 주거나 빼기';
+      b.setAttribute('aria-label', sk.name + ' 모두에게');
+      b.addEventListener('click', function () {
+        // 전원이 갖고 있으면 전체 해제, 아니면 전체 부여
+        var all = marbles.every(function (m) { return hasSkill(m.name, sk.id); });
+        marbles.forEach(function (m) {
+          if (hasSkill(m.name, sk.id) === all) toggleSkill(m.name, sk.id);
+        });
+        renderBoard();
+        renderChips();
+        toast(sk.icon + ' ' + sk.name + (all ? ' 전체 해제' : ' 전체 부여'));
+      });
+      th.appendChild(b);
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    t.appendChild(thead);
+
+    var tb = document.createElement('tbody');
+    marbles.forEach(function (m) {
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.className = 'who';
+      var nm = document.createElement('span');
+      nm.className = 'nm';
+      var d = document.createElement('span');
+      d.className = 'dot';
+      d.style.background = m.color;
+      nm.appendChild(d);
+      nm.appendChild(document.createTextNode(m.name));
+      td.appendChild(nm);
+      tr.appendChild(td);
+      SKILLS.forEach(function (sk) {
+        var c = document.createElement('td');
+        var b = document.createElement('button');
+        b.className = 'cell' + (hasSkill(m.name, sk.id) ? ' on' : '');
+        b.textContent = sk.icon;
+        b.setAttribute('aria-label', m.name + ' ' + sk.name);
+        b.addEventListener('click', function () {
+          toggleSkill(m.name, sk.id);
+          b.className = 'cell' + (hasSkill(m.name, sk.id) ? ' on' : '');
+          renderChips();
+        });
+        c.appendChild(b);
+        tr.appendChild(c);
+      });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+  }
+
+  document.getElementById('skillboard').addEventListener('click', function () {
     if (racing || countdownOn) return;
     if (!marbles.length) { toast('참가자를 먼저 넣어 주세요'); return; }
-    var had = marbles.some(function (m) { return (skillMap[m.name] || []).length; });
-    if (had && !randArm) {
-      var btn = this;
-      randArm = true;
-      btn.textContent = '🎲 한 번 더 누르면 새로';
-      btn.classList.add('on');
-      toast('지금 붙은 스킬이 지워집니다. 한 번 더 누르세요');
-      clearTimeout(randTimer);
-      randTimer = setTimeout(function () { resetRand(btn); }, 4000);
-      return;
+    if (!skillMode) {   // 켜 두지 않으면 붙여도 명단에 안 보인다
+      skillMode = true;
+      saveSkills();
+      paintSkillBtn();
+      renderChips();
     }
-    resetRand(this);
-    skillMap = {};
-    marbles.forEach(function (m) {
-      skillMap[m.name] = [SKILLS[Math.floor(Math.random() * SKILLS.length)].id];
-    });
-    if (!skillMode) skillMode = true;   // 나눠 줬는데 안 보이면 이상하니 같이 켠다
-    saveSkills();
-    paintSkillBtn();
-    renderChips();
-    toast('🎲 모두에게 스킬을 하나씩 나눠 줬어요');
+    renderBoard();
+    $board.classList.add('show');
   });
+  document.getElementById('boardclose').addEventListener('click', function () {
+    $board.classList.remove('show');
+  });
+  $board.addEventListener('click', function (e) {
+    if (e.target === this) this.classList.remove('show');
+  });
+  twoStep(document.getElementById('boardclear'),
+    '한 번 더 누르면 전부 지움',
+    '모든 스킬이 지워집니다. 한 번 더 누르세요',
+    anySkill,
+    function () {
+      skillMap = {};
+      saveSkills();
+      renderBoard();
+      renderChips();
+      toast('스킬을 전부 지웠어요');
+    });
 
   function renderChips() {
     $chips.innerHTML = '';
@@ -4251,6 +4446,7 @@ var qrcode = function() {
     $livelist.innerHTML = '';
     $liveempty.style.display = 'none';
     raceFrames = 0;
+    clearSkillLog();
     marbles.forEach(function (m) {
       m.finished = false; m.still = 0; m.boost = 0; m.hit = 0;
       m.bestY = -9999; m.stall = 0;
