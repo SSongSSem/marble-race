@@ -316,6 +316,31 @@
     opacity: 0; pointer-events: none; transition: opacity 0.25s;
   }
   .toast.show { opacity: 1; }
+
+  /* 스킬 */
+  .btn-ghost.on { background: rgba(255,201,77,0.18); border-color: rgba(255,201,77,0.55); color: var(--accent); }
+  .chip .sk { letter-spacing: -1px; margin-left: 2px; }
+  .chip .edit {
+    background: none; border: 0; color: var(--muted); cursor: pointer;
+    font-size: 0.9rem; padding: 0 2px; line-height: 1;
+  }
+  .chip .edit:hover { color: var(--accent); }
+  #skillbox .box { max-width: 400px; }
+  #skillbox h3 { margin: 0; font-size: 1.2rem; }
+  #skillbox .sklist { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  #skillbox .skrow {
+    display: flex; align-items: center; gap: 10px; text-align: left;
+    background: var(--track); border: 1px solid transparent;
+    border-radius: 12px; padding: 9px 12px; cursor: pointer; width: 100%;
+    color: var(--ink); font: inherit;
+  }
+  #skillbox .skrow.on { background: rgba(255,201,77,0.14); border-color: rgba(255,201,77,0.5); }
+  #skillbox .skrow .ic { font-size: 1.4rem; flex: none; width: 1.6em; text-align: center; }
+  #skillbox .skrow .tx { display: flex; flex-direction: column; gap: 2px; }
+  #skillbox .skrow .nm { font-weight: 800; font-size: 0.95rem; }
+  #skillbox .skrow .ds { font-size: 0.8rem; color: var(--muted); line-height: 1.3; }
+  #skillbox .skrow .mark { margin-left: auto; color: var(--muted); font-size: 1rem; flex: none; }
+  #skillbox .skrow.on .mark { color: var(--accent); }
 </style>
 
 <div class="wrap">
@@ -365,6 +390,9 @@
           <button class="btn-ghost" id="newmap">🗺️ 새 맵</button>
         </div>
         <div class="btnrow">
+          <button class="btn-ghost" id="skillbtn">⚔️ 스킬전 끔</button>
+        </div>
+        <div class="btnrow">
           <button class="btn-ghost" id="fs">⛶ 집중 모드</button>
           <button class="btn-ghost" id="mute">🔊 소리 켬</button>
         </div>
@@ -387,6 +415,15 @@
 </div>
 
 <button class="focus-exit" id="exitfocus" hidden>✕ 집중 모드 나가기</button>
+
+<div class="overlay" id="skillbox">
+  <div class="box">
+    <h3 id="skname">스킬 주기</h3>
+    <p style="margin:0;font-size:0.84rem;color:var(--muted);line-height:1.45">누르면 붙고, 다시 누르면 떨어집니다. 잘한 사람에게 상으로 주세요.</p>
+    <div class="sklist" id="sklist"></div>
+    <button class="btn-ghost" id="skclose">닫기</button>
+  </div>
+</div>
 
 <div class="overlay" id="qrbox">
   <div class="box">
@@ -2746,6 +2783,58 @@ var qrcode = function() {
   // 기본 명단 — 번호만. 실제 이름은 각자 브라우저에만 저장된다.
   var ROSTER = ['1번', '2번', '3번', '4번', '5번', '6번', '7번', '8번', '9번', '10번', '11번', '12번', '13번', '14번', '16번', '17번', '18번', '19번', '20번', '21번'];
 
+  // ===== 스킬 =====
+  // 잘한 학생에게 붙여 주는 상. 붙였다 뗐다 할 수 있어 포상으로 쓴다.
+  // 효과를 하나같이 '뒤에서 따라잡는' 쪽으로 기울여 두었다 - 앞선 구슬을 더
+  // 밀어 주면 이기던 사람만 계속 이겨서 재미가 없어진다.
+  var SKILLS = [
+    { id: 'rocket',  icon: '🚀', name: '로켓', desc: '레이스 도중 한 번, 아래로 확 밀어 준다' },
+    { id: 'feather', icon: '🪶', name: '깃털', desc: '가벼워서 좁은 틈을 잘 빠져나간다' },
+    { id: 'shield',  icon: '🛡️', name: '방패', desc: '부딪혀도 덜 튕겨서 곧게 내려간다' },
+    { id: 'warp',    icon: '🌀', name: '워프', desc: '많이 뒤처지면 한 번 앞으로 순간이동' },
+    { id: 'magnet',  icon: '🧲', name: '자석', desc: '앞서 가는 구슬 쪽으로 슬금슬금 끌린다' },
+    { id: 'bolt',    icon: '⚡', name: '번개', desc: '한 번, 앞서 있는 구슬들을 잠깐 붙잡는다' }
+  ];
+  var skillMode = false;      // 스킬전 켬/끔
+  var skillMap = {};          // 이름 -> [스킬 id]
+  try {
+    skillMode = localStorage.getItem('marblerace-skillmode') === '1';
+    skillMap = JSON.parse(localStorage.getItem('marblerace-skills') || '{}') || {};
+  } catch (e) { skillMap = {}; }
+  function saveSkills() {
+    try {
+      localStorage.setItem('marblerace-skills', JSON.stringify(skillMap));
+      localStorage.setItem('marblerace-skillmode', skillMode ? '1' : '0');
+    } catch (e) {}
+  }
+  function skillsOf(name) { return (skillMap[name] || []).slice(); }
+  function hasSkill(name, id) { return (skillMap[name] || []).indexOf(id) >= 0; }
+  function toggleSkill(name, id) {
+    var a = (skillMap[name] || []).slice();
+    var i = a.indexOf(id);
+    if (i >= 0) a.splice(i, 1); else a.push(id);
+    if (a.length) skillMap[name] = a; else delete skillMap[name];
+    saveSkills();
+  }
+  // 레이스를 시작할 때 구슬에 스킬 상태를 심는다
+  function skillFire(m, id) {
+    var sk = null;
+    for (var i = 0; i < SKILLS.length; i++) if (SKILLS[i].id === id) sk = SKILLS[i];
+    if (sk) toast(sk.icon + ' ' + m.name + ' ' + sk.name + '!');
+  }
+
+  function armSkills(m) {
+    m.sk = {}; m.slow = 0; m.flare = 0; m.thrust = 0; m.rocketAt = 0; m.boltAt = 0;
+    m.usedRocket = false; m.usedWarp = false; m.usedBolt = false;
+    if (!skillMode) return;
+    var a = skillMap[m.name] || [];
+    for (var i = 0; i < a.length; i++) m.sk[a[i]] = true;
+    // 로켓·번개는 한 번이 아니라 일정 간격으로 되풀이 터진다.
+    // 한 번만 터지면 20명 중에서는 티가 안 났다.
+    if (m.sk.rocket) m.rocketAt = 120 + Math.floor(Math.random() * 180);
+    if (m.sk.bolt) m.boltAt = 180 + Math.floor(Math.random() * 200);
+  }
+
   var cv = document.getElementById('race');
   var ctx = cv.getContext('2d');
   var mm = document.getElementById('minimap');
@@ -2818,6 +2907,7 @@ var qrcode = function() {
   var finishY = 1900;
   var lobbyFloor = null;
   var racing = false;
+  var raceFrames = 0;      // 레이스 시작 뒤 흐른 프레임 - 스킬 발동 시점에 쓴다
   var countdownOn = false;
   var finishedList = [];
   var camY = 0;
@@ -2835,7 +2925,8 @@ var qrcode = function() {
 
   var SECTION = {
     pegs: addPegs, zigzag: addZigzag, spinner: addSpinner, cross: addCross,
-    pendulum: addPendulum, booster: addBooster, tramp: addTramp, gates: addGates
+    pendulum: addPendulum, booster: addBooster, tramp: addTramp, gates: addGates,
+    conveyor: addConveyor, bumper: addBumper, split: addSplit, stairs: addStairs
   };
 
   function buildMap() {
@@ -2847,7 +2938,8 @@ var qrcode = function() {
     var y = LOBBY_FLOOR_Y + 20;
     y = addFunnel(y);
     // 본 코스: 섹션 5~7개 무작위 조합 (같은 종류 연속 방지)
-    var kinds = ['pegs', 'zigzag', 'spinner', 'cross', 'pendulum', 'booster', 'tramp', 'gates'];
+    var kinds = ['pegs', 'zigzag', 'spinner', 'cross', 'pendulum', 'booster', 'tramp', 'gates',
+                 'conveyor', 'bumper', 'split', 'stairs'];
     var count = 5 + Math.floor(Math.random() * 3);
     var last = '';
     for (var i = 0; i < count; i++) {
@@ -2972,6 +3064,57 @@ var qrcode = function() {
     return y + 44 + n * 96 + 32;
   }
 
+  // 컨베이어 - 얹히면 옆으로 밀려 나간다. 어디로 밀릴지가 순위를 흔든다
+  function addConveyor(y) {
+    var n = 2 + Math.floor(Math.random() * 2);
+    for (var i = 0; i < n; i++) {
+      var right = Math.random() < 0.5;
+      var yy = y + 40 + i * 92;
+      var cx = rand(120, W - 120), half = rand(85, 125);
+      // 살짝 기울인다 - 수평이면 구슬이 얹힌 채 안 내려간다
+      var tilt = (right ? 1 : -1) * rand(7, 13);
+      segs.push({ x1: cx - half, y1: yy - tilt, x2: cx + half, y2: yy + tilt,
+                  r: 5, kind: 'belt', bx: right ? 1 : -1 });
+    }
+    return y + 40 + n * 92 + 30;
+  }
+
+  // 범퍼 - 세게 튕겨 내는 큰 핀. 맞으면 순위가 확 바뀐다
+  function addBumper(y) {
+    var n = 3 + Math.floor(Math.random() * 3);
+    for (var i = 0; i < n; i++) {
+      pegs.push({ x: rand(62, W - 62), y: y + 48 + Math.random() * 118,
+                  r: 16, bump: true, ph: Math.random() * 6.28 });
+    }
+    return y + 218;
+  }
+
+  // 갈림길 - 가운데 쐐기가 좌우로 나눈다
+  function addSplit(y) {
+    var cx = W / 2 + rand(-40, 40);
+    var half = rand(72, 108), h = rand(95, 130);
+    segs.push({ x1: cx, y1: y + 20, x2: cx - half, y2: y + 20 + h, r: 4 });
+    segs.push({ x1: cx, y1: y + 20, x2: cx + half, y2: y + 20 + h, r: 4 });
+    // 갈라진 뒤 다시 가운데로 모으는 턱
+    var yb = y + 20 + h + 46;
+    segs.push({ x1: 0, y1: yb, x2: rand(48, 78), y2: yb - 24, r: 4 });
+    segs.push({ x1: W, y1: yb, x2: W - rand(48, 78), y2: yb - 24, r: 4 });
+    return y + 20 + h + 96;
+  }
+
+  // 계단 - 톡톡 튀며 한쪽으로 흘러 내려간다
+  function addStairs(y) {
+    var n = 4 + Math.floor(Math.random() * 3);
+    var right = Math.random() < 0.5;
+    for (var i = 0; i < n; i++) {
+      var yy = y + 30 + i * 54;
+      var w2 = rand(80, 116);
+      var t = n > 1 ? i / (n - 1) : 0;
+      var x1 = right ? t * (W - w2) : (W - w2) * (1 - t);
+      segs.push({ x1: x1, y1: yy, x2: x1 + w2, y2: yy + rand(11, 19), r: 4 });
+    }
+    return y + 30 + n * 54 + 26;
+  }
   // 좁은 관문 — 구멍 두세 개
   function addGates(y) {
     gateRow(y + 55);
@@ -3075,10 +3218,16 @@ var qrcode = function() {
       var vn = m.vx * nx + m.vy * ny;
       if (vn < 0) {
         var e = s.rest || REST;
+        var tg = TANG;
+        if (m.sk && m.sk.shield) { e *= 0.26; tg = 1.0; }   // 방패 - 안 튕기고 미끄러진다
+        else if (m.sk && m.sk.feather) tg = 1.0;            // 깃털 - 걸리지 않고 흘러간다
         var vtx = m.vx - vn * nx, vty = m.vy - vn * ny;
-        m.vx = vtx * TANG - vn * e * nx;
-        m.vy = vty * TANG - vn * e * ny;
+        m.vx = vtx * tg - vn * e * nx;
+        m.vy = vty * tg - vn * e * ny;
         if (-vn > m.hit) { m.hit = -vn; m.hx = px; m.hy = py; }
+      }
+      if (s.kind === 'belt') {
+        m.vx += s.bx * 0.55;
       }
       if (s.kind === 'boost') {
         m.vx += s.bx * 0.95; m.vy += s.by * 0.95;
@@ -3103,11 +3252,16 @@ var qrcode = function() {
       m.x = p.x + nx * rr; m.y = p.y + ny * rr;
       var vn = m.vx * nx + m.vy * ny;
       if (vn < 0) {
+        var e = p.bump ? 1.15 : REST;   // 범퍼는 들어온 것보다 세게 되돌려 보낸다
+        var tg = TANG;
+        if (m.sk && m.sk.shield) { e *= 0.26; tg = 1.0; }
+        else if (m.sk && m.sk.feather) tg = 1.0;
         var vtx = m.vx - vn * nx, vty = m.vy - vn * ny;
-        m.vx = vtx * TANG - vn * REST * nx;
-        m.vy = vty * TANG - vn * REST * ny;
+        m.vx = vtx * tg - vn * e * nx;
+        m.vy = vty * tg - vn * e * ny;
         if (-vn > m.hit) { m.hit = -vn; m.hx = p.x + nx * p.r; m.hy = p.y + ny * p.r; }
-        p.lit = 12;
+        p.lit = p.bump ? 18 : 12;
+        if (p.bump && -vn > 1.2) spark(p.x + nx * p.r, p.y + ny * p.r, '#FF8787', 5, 3);
       }
     }
   }
@@ -3124,9 +3278,64 @@ var qrcode = function() {
     }
     for (var pi = 0; pi < pegs.length; pi++) if (pegs[pi].lit > 0) pegs[pi].lit -= ts;
 
+    // 선두 위치 - 역전 보정과 자석·워프가 이걸 기준으로 움직인다
+    var leadY = -1e9, leadX = W / 2;
+    for (var q = 0; q < marbles.length; q++) {
+      var mq = marbles[q];
+      if (!mq.finished && mq.y > leadY) { leadY = mq.y; leadX = mq.x; }
+    }
+    if (racing) raceFrames += ts;
+
     for (var i0 = 0; i0 < marbles.length; i0++) {
-      marbles[i0].hit = 0;
-      if (marbles[i0].boost > 0) marbles[i0].boost -= ts;
+      var m0 = marbles[i0];
+      m0.hit = 0;
+      if (m0.boost > 0) m0.boost -= ts;
+      if (m0.slow > 0) m0.slow -= ts;
+      if (m0.flare > 0) m0.flare -= ts;
+      if (!racing || m0.finished) continue;
+      var behind = leadY - m0.y;
+
+      // 역전 보정 - 뒤처질수록 아래로 살짝 더 당겨 준다.
+      // 스킬전이 꺼져 있어도 늘 작동한다. 세게 걸면 순위가 뒤죽박죽이라 아주 약하게.
+      if (behind > 260) m0.vy += Math.min(1, (behind - 260) / 900) * 0.16 * ts;
+
+      if (!m0.sk) continue;
+      // 자석 - 앞선 구슬 쪽으로 슬금슬금 끌린다
+      if (m0.sk.magnet && behind > 60) {
+        m0.vx += (leadX > m0.x ? 1 : -1) * 0.13 * ts;
+        m0.vy += Math.min(1, behind / 500) * 0.17 * ts;
+      }
+      // 로켓 - 8초쯤마다 되풀이. 터지면 2초간 아래로 계속 밀린다
+      if (m0.sk.rocket && raceFrames > m0.rocketAt) {
+        m0.rocketAt = raceFrames + 480;
+        m0.thrust = 120;
+        m0.boost = 120; m0.flare = 50;
+        spark(m0.x, m0.y, '#FFD43B', 14, 5);
+        skillFire(m0, 'rocket');
+      }
+      if (m0.thrust > 0) m0.thrust -= ts;
+      // 워프 - 많이 뒤처졌을 때 한 번 앞으로
+      if (m0.sk.warp && !m0.usedWarp && behind > 420) {
+        m0.usedWarp = true;
+        m0.y += Math.min(300, behind * 0.55);
+        m0.bestY = m0.y; m0.stall = 0;
+        if (m0.vy < 3) m0.vy = 3;
+        m0.flare = 45;
+        spark(m0.x, m0.y, '#DA77F2', 16, 5);
+        skillFire(m0, 'warp');
+      }
+      // 번개 - 7초쯤마다 되풀이. 자기보다 앞서 있는 구슬들을 잠깐 붙잡는다
+      if (m0.sk.bolt && raceFrames > m0.boltAt) {
+        m0.boltAt = raceFrames + 330;
+        for (var z = 0; z < marbles.length; z++) {
+          var mz = marbles[z];
+          if (mz === m0 || mz.finished || mz.y <= m0.y + 40) continue;
+          mz.slow = 135;
+          spark(mz.x, mz.y, '#4DABF7', 6, 3);
+        }
+        m0.flare = 45;
+        skillFire(m0, 'bolt');
+      }
     }
 
     for (var s = 0; s < SUBSTEPS; s++) {
@@ -3134,8 +3343,11 @@ var qrcode = function() {
         var m = marbles[i];
         if (m.finished) continue;
         m.vy += GRAV * dt;
+        if (m.thrust > 0) m.vy += GRAV * 1.15 * dt;          // 로켓 추진 중
+        if (m.slow > 0) { m.vx *= 0.975; m.vy *= 0.975; }   // 번개에 붙잡힌 상태
         var v = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
-        if (v > MAX_V) { m.vx *= MAX_V / v; m.vy *= MAX_V / v; }
+        var vmax = m.thrust > 0 ? MAX_V * 1.28 : MAX_V;
+        if (v > vmax) { m.vx *= vmax / v; m.vy *= vmax / v; }
         m.x += m.vx * dt;
         m.y += m.vy * dt;
 
@@ -3215,15 +3427,16 @@ var qrcode = function() {
       if (racing) {
         if (m2.y > m2.bestY + 2) { m2.bestY = m2.y; m2.stall = 0; }
         else m2.stall += ts;
-        if (m2.stall > 780) {                    // 13초 — 아래로 순간이동
+        var esc = (m2.sk && m2.sk.feather) ? 230 : 420;   // 깃털은 빨리 빠져나온다
+        if (m2.stall > esc) {                    // 13초 — 아래로 순간이동
           m2.y += 70;
           m2.x = Math.max(26, Math.min(W - 26, m2.x + rand(-45, 45)));
           m2.vx = rand(-1, 1); m2.vy = 2.2;
           m2.bestY = m2.y; m2.stall = 0;
           spark(m2.x, m2.y, '#FFFFFF', 12, 4);
-        } else if (m2.stall > 460 && m2.stall - ts <= 460) {
+        } else if (m2.stall > 260 && m2.stall - ts <= 260) {
           m2.vx += rand(-3.5, 3.5); m2.vy += 2.5;
-        } else if (m2.stall > 200 && m2.stall - ts <= 200) {
+        } else if (m2.stall > 120 && m2.stall - ts <= 120) {
           m2.vx += rand(-2.2, 2.2); m2.vy -= rand(0.4, 1.2);
         }
       }
@@ -3659,6 +3872,52 @@ var qrcode = function() {
     renderChips();
   }
 
+  // ===== 스킬 편집창 =====
+  var skillTarget = null;
+  function openSkillBox(name) {
+    skillTarget = name;
+    document.getElementById('skname').textContent = name + ' 스킬';
+    var box = document.getElementById('sklist');
+    box.innerHTML = '';
+    SKILLS.forEach(function (sk) {
+      var b = document.createElement('button');
+      b.className = 'skrow' + (hasSkill(name, sk.id) ? ' on' : '');
+      b.innerHTML = '<span class="ic"></span><span class="tx">'
+        + '<span class="nm"></span><span class="ds"></span></span><span class="mark"></span>';
+      b.querySelector('.ic').textContent = sk.icon;
+      b.querySelector('.nm').textContent = sk.name;
+      b.querySelector('.ds').textContent = sk.desc;
+      b.querySelector('.mark').textContent = hasSkill(name, sk.id) ? '✓' : '+';
+      b.addEventListener('click', function () {
+        toggleSkill(name, sk.id);
+        openSkillBox(name);
+        renderChips();
+      });
+      box.appendChild(b);
+    });
+    document.getElementById('skillbox').classList.add('show');
+  }
+  document.getElementById('skclose').addEventListener('click', function () {
+    document.getElementById('skillbox').classList.remove('show');
+  });
+  document.getElementById('skillbox').addEventListener('click', function (e) {
+    if (e.target === this) this.classList.remove('show');
+  });
+  var $skillbtn = document.getElementById('skillbtn');
+  function paintSkillBtn() {
+    $skillbtn.textContent = '⚔️ 스킬전 ' + (skillMode ? '켬' : '끔');
+    $skillbtn.classList.toggle('on', skillMode);
+  }
+  $skillbtn.addEventListener('click', function () {
+    if (racing || countdownOn) return;
+    skillMode = !skillMode;
+    saveSkills();
+    paintSkillBtn();
+    renderChips();
+    toast(skillMode ? '스킬전을 켰어요' : '스킬전을 껐어요');
+  });
+  paintSkillBtn();
+
   function renderChips() {
     $chips.innerHTML = '';
     marbles.forEach(function (m) {
@@ -3669,6 +3928,25 @@ var qrcode = function() {
       d.style.background = m.color;
       c.appendChild(d);
       c.appendChild(document.createTextNode(m.name));
+      // 스킬전이 켜져 있으면 붙은 스킬을 보여 주고, 눌러서 고칠 수 있게 한다
+      if (skillMode) {
+        var mine = skillsOf(m.name);
+        if (mine.length) {
+          var sp = document.createElement('span');
+          sp.className = 'sk';
+          sp.textContent = mine.map(function (id) {
+            for (var i = 0; i < SKILLS.length; i++) if (SKILLS[i].id === id) return SKILLS[i].icon;
+            return '';
+          }).join('');
+          c.appendChild(sp);
+        }
+        var ed = document.createElement('button');
+        ed.className = 'edit';
+        ed.textContent = '⚙';
+        ed.setAttribute('aria-label', m.name + ' 스킬 고르기');
+        ed.addEventListener('click', function () { if (!racing) openSkillBox(m.name); });
+        c.appendChild(ed);
+      }
       var x = document.createElement('button');
       x.textContent = '×';
       x.setAttribute('aria-label', m.name + ' 내보내기');
@@ -3848,10 +4126,14 @@ var qrcode = function() {
     flash = 0; shake = 0; camZoom = 1; timeScale = 1;
     $livelist.innerHTML = '';
     $liveempty.style.display = 'none';
+    raceFrames = 0;
     marbles.forEach(function (m) {
       m.finished = false; m.still = 0; m.boost = 0; m.hit = 0;
       m.bestY = -9999; m.stall = 0;
       m.trail = [];
+      armSkills(m);
+      // 깃털은 몸집이 작아진다 - 좁은 틈을 잘 빠져나가고 눈에도 그렇게 보인다
+      m.r = (m.sk && m.sk.feather) ? MARBLE_R * 0.86 : MARBLE_R;
       m.x = rand(40, W - 40);
       m.y = rand(30, LOBBY_FLOOR_Y - 30);
       m.vx = rand(-1.5, 1.5); m.vy = 0;
