@@ -5,7 +5,9 @@ const rows = [];
 const recorder = {
   children: { get length() { return rows.length; } },
   firstChild: null, lastChild: null,
+  querySelector() { return null; },   // 합치기 없이 매번 새 줄로 세어 발동 횟수를 그대로 본다
   insertBefore(node) { rows.push(node.__text || '?'); return node; },
+  appendChild() {},                   // 출전 명단은 세지 않는다
   removeChild() {},
   set innerHTML(v) { rows.length = 0; },
   get innerHTML() { return ''; }

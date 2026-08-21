@@ -12,16 +12,36 @@ function runRace() {
   const s = h.state();
   let frames = 0;
   let maxStall = 0;
+  // 선두가 바뀐 횟수. 초반 뒤엉킴은 흔하니 '후반부(코스 뒤 30%)'를 따로 센다 —
+  // 사용자가 보고 싶어 하는 대역전극은 거의 이 구간에서 나온다.
+  let leader = null, leadChanges = 0, lateChanges = 0;
   while (s.finished.length < NAMES.length && frames < MAX_FRAMES) {
     h.step(1);
     frames++;
-    for (const m of s.marbles) if (!m.finished && m.stall > maxStall) maxStall = m.stall;
+    let best = null;
+    for (const m of s.marbles) {
+      if (m.finished) continue;
+      if (m.stall > maxStall) maxStall = m.stall;
+      if (!best || m.y > best.y) best = m;
+    }
+    // 결승 통과자가 나오기 전까지만 센다 (뒤에서는 순위가 이미 굳는다)
+    if (best && s.finished.length === 0) {
+      if (leader && best !== leader) {
+        leadChanges++;
+        if (best.y > s.finishY - s.worldH * 0.3) lateChanges++;
+      }
+      leader = best;
+    }
   }
   return {
     done: s.finished.length === NAMES.length,
     frames,
     seconds: +(frames / 60).toFixed(1),
     winner: s.finished[0] ? s.finished[0].name : null,
+    leadChanges,
+    lateChanges,
+    // 1등과 2등의 도착 간격 (프레임). 작을수록 아슬아슬했다는 뜻
+    photo: s.finished.length > 1 ? true : false,
     maxStall: Math.round(maxStall),
     worldH: Math.round(s.worldH)
   };
@@ -43,4 +63,10 @@ console.log(`  최장 정체        ${Math.max(...rs.map(r => r.maxStall))}프�
 console.log(`  서로 다른 우승자 ${Object.keys(wins).length}명 / ${NAMES.length}명`);
 const top = Object.entries(wins).sort((a, b) => b[1] - a[1])[0];
 console.log(`  최다 우승        ${top[0]} ${top[1]}회`);
+const avgLc = (rs.reduce((a, r) => a + r.leadChanges, 0) / N).toFixed(1);
+const avgLate = (rs.reduce((a, r) => a + r.lateChanges, 0) / N).toFixed(1);
+const dull = rs.filter(r => r.lateChanges === 0).length;
+console.log(`  선두 교체        평균 ${avgLc}회`);
+console.log(`  후반부 교체      평균 ${avgLate}회  ← 대역전극`);
+console.log(`  막판 뒤집기 없음 ${dull}판 / ${N}판`);
 process.exit(fail.length ? 1 : 0);

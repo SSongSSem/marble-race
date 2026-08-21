@@ -341,7 +341,13 @@
     font-size: 0.8rem; font-weight: 700;
     animation: slidein 0.3s cubic-bezier(.2,.9,.3,1.2);
   }
-  .skilllog .row.lineup { opacity: 0.5; animation: none; }
+  .skilllog .row.hot { outline: 1px solid rgba(255,201,77,0.7); background: rgba(255,201,77,0.12); }
+  .skilllog .row .cnt { margin-left: auto; color: var(--accent); font-size: 0.76rem; flex: none; }
+  .skilllog .row.lineup {
+    opacity: 0.45; animation: none; background: transparent;
+    padding: 3px 6px; font-size: 0.74rem; font-weight: 600;
+  }
+  .skilllog .row.lineup .who { white-space: normal; overflow: visible; line-height: 1.3; }
   .skilllog .row .ic { font-size: 0.95rem; flex: none; }
   .skilllog .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .skilllog .row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2941,47 +2947,62 @@ var qrcode = function() {
     logSkill(m, sk);
   }
 
+  // 같은 사람이 같은 스킬을 또 쓰면 줄을 새로 만들지 않고 횟수만 올린 뒤 맨 위로 옮긴다.
+  // 줄을 계속 쌓으면 금방 빽빽해져서 정작 방금 무슨 일이 났는지가 안 보인다.
   function logSkill(m, sk) {
     var box = document.getElementById('skilllog');
     if (!box) return;
     var empty = document.getElementById('logempty');
     if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
-    var row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = '<span class="ic"></span><span class="dot"></span><span class="who"></span>';
-    row.querySelector('.ic').textContent = sk.icon;
-    row.querySelector('.dot').style.background = m.color;
-    row.querySelector('.who').textContent = m.name;
-    row.title = m.name + ' - ' + sk.name;
-    box.insertBefore(row, box.firstChild);   // 새 것이 맨 위
-    while (box.children.length > 60) box.removeChild(box.lastChild);
+
+    var key = m.name + '/' + sk.id;
+    var row = box.querySelector('[data-key="' + key + '"]');
+    if (row) {
+      var n = (parseInt(row.getAttribute('data-n'), 10) || 1) + 1;
+      row.setAttribute('data-n', n);
+      row.querySelector('.cnt').textContent = '×' + n;
+    } else {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.setAttribute('data-key', key);
+      row.setAttribute('data-n', 1);
+      row.innerHTML = '<span class="ic"></span><span class="dot"></span>'
+        + '<span class="who"></span><span class="cnt"></span>';
+      row.querySelector('.ic').textContent = sk.icon;
+      row.querySelector('.dot').style.background = m.color;
+      row.querySelector('.who').textContent = m.name;
+      row.title = m.name + ' - ' + sk.name;
+    }
+    // 방금 것만 눈에 띄게
+    var hot = box.querySelector('.row.hot');
+    if (hot) hot.classList.remove('hot');
+    row.classList.add('hot');
+    box.insertBefore(row, box.firstChild);
   }
 
-  // 깃털·방패·자석은 상시 효과라 '터지는 순간'이 없어 기록에 안 남는다.
+  // 깃털·방패·자석은 상시 효과라  // 깃털·방패·자석은 상시 효과라 '터지는 순간'이 없어 기록에 안 남는다.
   // 그래서 시작할 때 누가 무엇을 들고 나왔는지 한 줄씩 깔아 둔다.
   function logLineup() {
     if (!skillMode) return;
     var box = document.getElementById('skilllog');
     if (!box) return;
-    marbles.forEach(function (m) {
-      var ids = skillsOf(m.name);
-      if (!ids.length) return;
-      var icons = ids.map(function (id) {
-        for (var i = 0; i < SKILLS.length; i++) if (SKILLS[i].id === id) return SKILLS[i].icon;
-        return '';
-      }).join('');
+    // 사람마다 한 줄씩 깔면 20줄이 깔려 정작 발동이 묻힌다.
+    // 스킬별로 묶어 최대 여섯 줄로 줄인다.
+    SKILLS.forEach(function (sk) {
+      var who = marbles.filter(function (m) { return hasSkill(m.name, sk.id); })
+                       .map(function (m) { return m.name; });
+      if (!who.length) return;
       var empty = document.getElementById('logempty');
       if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
       var row = document.createElement('div');
       row.className = 'row lineup';
-      row.innerHTML = '<span class="ic"></span><span class="dot"></span><span class="who"></span>';
-      row.querySelector('.ic').textContent = icons;
-      row.querySelector('.dot').style.background = m.color;
-      row.querySelector('.who').textContent = m.name;
+      row.innerHTML = '<span class="ic"></span><span class="who"></span>';
+      row.querySelector('.ic').textContent = sk.icon;
+      row.querySelector('.who').textContent = who.join(' ');
+      row.title = sk.name + ' - ' + who.join(', ');
       box.appendChild(row);
     });
   }
-
   function clearSkillLog() {
     var box = document.getElementById('skilllog');
     if (!box) return;
@@ -3113,6 +3134,11 @@ var qrcode = function() {
       last = k;
       y = SECTION[k](y);
     }
+    // 마지막은 순위를 흔드는 구간으로 고정한다.
+    // 코스가 길면 선두가 그냥 달아나 버려서 막판에 뒤집히는 장면이 안 나왔다.
+    var FINALE = ['bumper', 'cross', 'spinner', 'gates'];
+    var shuffler = FINALE.filter(function (k) { return kinds.indexOf(k) >= 0; });
+    if (shuffler.length) y = SECTION[pick(shuffler)](y);
     y = addFunnel(y);
     finishY = y + 60;
     worldH = finishY + 260;
@@ -3450,6 +3476,9 @@ var qrcode = function() {
       if (!mq.finished && mq.y > leadY) { leadY = mq.y; leadX = mq.x; }
     }
     if (racing) raceFrames += ts;
+    // 선두가 코스 뒤 3분의 1에 들어서면 0에서 1로 차오른다. 막판 보정의 세기다.
+    var endRush = (leadY - (finishY - worldH * 0.40)) / (worldH * 0.40);
+    if (endRush < 0) endRush = 0; else if (endRush > 1) endRush = 1;
 
     for (var i0 = 0; i0 < marbles.length; i0++) {
       var m0 = marbles[i0];
@@ -3460,9 +3489,13 @@ var qrcode = function() {
       if (!racing || m0.finished) continue;
       var behind = leadY - m0.y;
 
-      // 역전 보정 - 뒤처질수록 아래로 살짝 더 당겨 준다.
-      // 스킬전이 꺼져 있어도 늘 작동한다. 세게 걸면 순위가 뒤죽박죽이라 아주 약하게.
-      if (behind > 260) m0.vy += Math.min(1, (behind - 260) / 900) * 0.16 * ts;
+      // 역전 보정 - 뒤처질수록 아래로 당겨 준다. 스킬전이 꺼져 있어도 늘 작동한다.
+      // 선두가 결승선에 가까울수록 세게 당긴다. 코스를 길게 잡으면 선두가 그냥
+      // 달아나 버려서 막판에 뒤집히는 장면이 거의 안 나왔다.
+      if (behind > 150) {
+        var pull = Math.min(1, (behind - 150) / 800);
+        m0.vy += pull * (0.16 + endRush * 1.05) * ts;
+      }
 
       if (!m0.sk) continue;
       // 자석 - 앞선 구슬 쪽으로 슬금슬금 끌린다
@@ -3491,7 +3524,7 @@ var qrcode = function() {
       }
       // 번개 - 7초쯤마다 되풀이. 자기보다 앞서 있는 구슬들을 잠깐 붙잡는다
       if (m0.sk.bolt && raceFrames > m0.boltAt) {
-        m0.boltAt = raceFrames + 330;
+        m0.boltAt = raceFrames + 520;
         for (var z = 0; z < marbles.length; z++) {
           var mz = marbles[z];
           if (mz === m0 || mz.finished || mz.y <= m0.y + 40) continue;
