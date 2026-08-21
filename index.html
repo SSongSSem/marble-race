@@ -341,6 +341,7 @@
     font-size: 0.8rem; font-weight: 700;
     animation: slidein 0.3s cubic-bezier(.2,.9,.3,1.2);
   }
+  .skilllog .row.lineup { opacity: 0.5; animation: none; }
   .skilllog .row .ic { font-size: 0.95rem; flex: none; }
   .skilllog .row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .skilllog .row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2956,6 +2957,31 @@ var qrcode = function() {
     while (box.children.length > 60) box.removeChild(box.lastChild);
   }
 
+  // 깃털·방패·자석은 상시 효과라 '터지는 순간'이 없어 기록에 안 남는다.
+  // 그래서 시작할 때 누가 무엇을 들고 나왔는지 한 줄씩 깔아 둔다.
+  function logLineup() {
+    if (!skillMode) return;
+    var box = document.getElementById('skilllog');
+    if (!box) return;
+    marbles.forEach(function (m) {
+      var ids = skillsOf(m.name);
+      if (!ids.length) return;
+      var icons = ids.map(function (id) {
+        for (var i = 0; i < SKILLS.length; i++) if (SKILLS[i].id === id) return SKILLS[i].icon;
+        return '';
+      }).join('');
+      var empty = document.getElementById('logempty');
+      if (empty && empty.parentNode) empty.parentNode.removeChild(empty);
+      var row = document.createElement('div');
+      row.className = 'row lineup';
+      row.innerHTML = '<span class="ic"></span><span class="dot"></span><span class="who"></span>';
+      row.querySelector('.ic').textContent = icons;
+      row.querySelector('.dot').style.background = m.color;
+      row.querySelector('.who').textContent = m.name;
+      box.appendChild(row);
+    });
+  }
+
   function clearSkillLog() {
     var box = document.getElementById('skilllog');
     if (!box) return;
@@ -4458,6 +4484,7 @@ var qrcode = function() {
       m.y = rand(30, LOBBY_FLOOR_Y - 30);
       m.vx = rand(-1.5, 1.5); m.vy = 0;
     });
+    logLineup();
     countdownOn = true;
     renderChips();
 
