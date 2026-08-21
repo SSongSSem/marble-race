@@ -59,6 +59,11 @@ src = src.replace(/\}\)\(\);\s*$/, `
     W: W, LOBBY_FLOOR_Y: LOBBY_FLOOR_Y,
     buildMap: buildMap,
     setSkillMode: function (v) { skillMode = v; },
+    KIND_ORDER: KIND_ORDER,
+    setKinds: function (list) {
+      KIND_ORDER.forEach(function (k) { kindsOn[k] = list.indexOf(k) >= 0; });
+    },
+    setLen: function (v) { mapLen = v; },
     setSkillMap: function (o) { skillMap = o; },
     SKILLS: SKILLS,
     step: step,

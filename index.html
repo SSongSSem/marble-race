@@ -317,6 +317,16 @@
   }
   .toast.show { opacity: 1; }
 
+  /* 맵 고르기 */
+  .kinds { display: flex; flex-wrap: wrap; gap: 5px; }
+  .kinds button {
+    background: var(--track); color: var(--muted);
+    border: 1px solid var(--panel-line); border-radius: 999px;
+    padding: 5px 10px; font-size: 0.8rem; font-weight: 700;
+  }
+  .kinds button.on { background: rgba(255,201,77,0.16); border-color: rgba(255,201,77,0.5); color: var(--accent); }
+  #lenseg button { flex: 1 1 0; }
+
   /* 스킬 */
   .btn-ghost.on { background: rgba(255,201,77,0.18); border-color: rgba(255,201,77,0.55); color: var(--accent); }
   .chip .sk { letter-spacing: -1px; margin-left: 2px; }
@@ -372,6 +382,16 @@
         </div>
       </section>
 
+      <section class="card" id="mapcard">
+        <h2>맵</h2>
+        <div class="kinds" id="kindlist"></div>
+        <div class="seg" id="lenseg">
+          <button data-len="short">짧게</button>
+          <button data-len="mid" class="on">보통</button>
+          <button data-len="long">길게</button>
+        </div>
+      </section>
+
       <section class="card" id="modecard">
         <h2>뽑기 모드</h2>
         <div class="seg" id="modeseg">
@@ -391,6 +411,7 @@
         </div>
         <div class="btnrow">
           <button class="btn-ghost" id="skillbtn">⚔️ 스킬전 끔</button>
+          <button class="btn-ghost" id="skillrand">🎲 랜덤 배정</button>
         </div>
         <div class="btnrow">
           <button class="btn-ghost" id="fs">⛶ 집중 모드</button>
@@ -2783,6 +2804,39 @@ var qrcode = function() {
   // 기본 명단 — 번호만. 실제 이름은 각자 브라우저에만 저장된다.
   var ROSTER = ['1번', '2번', '3번', '4번', '5번', '6번', '7번', '8번', '9번', '10번', '11번', '12번', '13번', '14번', '16번', '17번', '18번', '19번', '20번', '21번'];
 
+  // ===== 맵 고르기 =====
+  // 어떤 구간을 넣을지, 얼마나 길게 만들지 고른다. 기본은 전부 켬 + 보통.
+  var KIND_ORDER = ['pegs', 'zigzag', 'spinner', 'cross', 'pendulum', 'booster',
+                    'tramp', 'gates', 'conveyor', 'bumper', 'split', 'stairs'];
+  var KIND_NAME = {
+    pegs: '핀', zigzag: '지그재그', spinner: '회전바', cross: '십자바',
+    pendulum: '진자', booster: '부스터', tramp: '트램펄린', gates: '관문',
+    conveyor: '컨베이어', bumper: '범퍼', split: '갈림길', stairs: '계단'
+  };
+  var kindsOn = {};
+  KIND_ORDER.forEach(function (k) { kindsOn[k] = true; });
+  var mapLen = 'mid';
+  try {
+    var kj = JSON.parse(localStorage.getItem('marblerace-kinds') || 'null');
+    if (kj) KIND_ORDER.forEach(function (k) { kindsOn[k] = kj[k] !== false; });
+    mapLen = localStorage.getItem('marblerace-maplen') || 'mid';
+  } catch (e) {}
+  function saveMapPrefs() {
+    try {
+      localStorage.setItem('marblerace-kinds', JSON.stringify(kindsOn));
+      localStorage.setItem('marblerace-maplen', mapLen);
+    } catch (e) {}
+  }
+  function pickedKinds() {
+    var a = KIND_ORDER.filter(function (k) { return kindsOn[k]; });
+    return a.length ? a : KIND_ORDER.slice();   // 다 꺼 두면 전부 쓴다
+  }
+  function sectionCount() {
+    if (mapLen === 'short') return 3 + Math.floor(Math.random() * 2);
+    if (mapLen === 'long') return 8 + Math.floor(Math.random() * 3);
+    return 5 + Math.floor(Math.random() * 3);
+  }
+
   // ===== 스킬 =====
   // 잘한 학생에게 붙여 주는 상. 붙였다 뗐다 할 수 있어 포상으로 쓴다.
   // 효과를 하나같이 '뒤에서 따라잡는' 쪽으로 기울여 두었다 - 앞선 구슬을 더
@@ -2938,13 +2992,13 @@ var qrcode = function() {
     var y = LOBBY_FLOOR_Y + 20;
     y = addFunnel(y);
     // 본 코스: 섹션 5~7개 무작위 조합 (같은 종류 연속 방지)
-    var kinds = ['pegs', 'zigzag', 'spinner', 'cross', 'pendulum', 'booster', 'tramp', 'gates',
-                 'conveyor', 'bumper', 'split', 'stairs'];
-    var count = 5 + Math.floor(Math.random() * 3);
+    var kinds = pickedKinds();
+    var count = sectionCount();
     var last = '';
     for (var i = 0; i < count; i++) {
       var k;
-      do { k = pick(kinds); } while (k === last);
+      // 한 종류만 골랐으면 연속 방지를 걸 수 없다 (무한 반복이 된다)
+      do { k = pick(kinds); } while (kinds.length > 1 && k === last);
       last = k;
       y = SECTION[k](y);
     }
@@ -3917,6 +3971,57 @@ var qrcode = function() {
     toast(skillMode ? '스킬전을 켰어요' : '스킬전을 껐어요');
   });
   paintSkillBtn();
+
+  function renderKinds() {
+    var box = document.getElementById('kindlist');
+    box.innerHTML = '';
+    KIND_ORDER.forEach(function (k) {
+      var b = document.createElement('button');
+      b.textContent = KIND_NAME[k];
+      b.className = kindsOn[k] ? 'on' : '';
+      b.setAttribute('aria-pressed', kindsOn[k] ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        kindsOn[k] = !kindsOn[k];
+        saveMapPrefs();
+        renderKinds();
+        if (!racing && !countdownOn) { buildMap(); camY = 0; }
+      });
+      box.appendChild(b);
+    });
+  }
+  renderKinds();
+
+  document.getElementById('lenseg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    mapLen = b.getAttribute('data-len');
+    saveMapPrefs();
+    [].forEach.call(this.querySelectorAll('button'), function (x) {
+      x.classList.toggle('on', x.getAttribute('data-len') === mapLen);
+    });
+    if (!racing && !countdownOn) { buildMap(); camY = 0; }
+  });
+  [].forEach.call(document.getElementById('lenseg').querySelectorAll('button'), function (x) {
+    x.classList.toggle('on', x.getAttribute('data-len') === mapLen);
+  });
+
+  // 모두에게 스킬을 하나씩 무작위로 나눠 준다.
+  // 포상으로 붙여 둔 게 있으면 지워지므로 먼저 물어본다.
+  document.getElementById('skillrand').addEventListener('click', function () {
+    if (racing || countdownOn) return;
+    if (!marbles.length) { toast('참가자를 먼저 넣어 주세요'); return; }
+    var had = marbles.some(function (m) { return (skillMap[m.name] || []).length; });
+    if (had && !confirm('지금 붙어 있는 스킬을 모두 지우고 새로 하나씩 나눠 줍니다. 할까요?')) return;
+    skillMap = {};
+    marbles.forEach(function (m) {
+      skillMap[m.name] = [SKILLS[Math.floor(Math.random() * SKILLS.length)].id];
+    });
+    if (!skillMode) skillMode = true;   // 나눠 줬는데 안 보이면 이상하니 같이 켠다
+    saveSkills();
+    paintSkillBtn();
+    renderChips();
+    toast('🎲 모두에게 스킬을 하나씩 나눠 줬어요');
+  });
 
   function renderChips() {
     $chips.innerHTML = '';
